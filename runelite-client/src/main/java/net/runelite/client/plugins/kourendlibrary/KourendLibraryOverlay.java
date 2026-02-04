@@ -25,11 +25,13 @@
 package net.runelite.client.plugins.kourendlibrary;
 
 import com.google.inject.Inject;
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Polygon;
+import java.awt.Stroke;
 import java.awt.geom.Rectangle2D;
 import java.util.List;
 import java.util.Objects;
@@ -44,6 +46,7 @@ import net.runelite.api.Player;
 import net.runelite.api.Point;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.client.plugins.kourendlibrary.pathfinder.LibraryPathfinderService;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
@@ -222,7 +225,117 @@ class KourendLibraryOverlay extends Overlay
 			}
 		}
 
+		// Render the optimal path to collect books
+		if (config.showOptimalPath())
+		{
+			renderOptimalPath(g, playerLoc);
+		}
+
 		return null;
+	}
+
+	/**
+	 * Renders the optimal path to collect books on the game tiles.
+	 */
+	private void renderOptimalPath(Graphics2D g, WorldPoint playerLoc)
+	{
+		LibraryPathfinderService pathfinderService = plugin.getPathfinderService();
+		List<WorldPoint> path = pathfinderService.getOptimalPath();
+		List<Bookcase> bookcaseOrder = pathfinderService.getOptimalBookcaseOrder();
+
+		if (path == null || path.isEmpty())
+		{
+			return;
+		}
+
+		Color pathColor = config.pathColor();
+		Color nextBookcaseColor = config.nextBookcaseColor();
+		Stroke originalStroke = g.getStroke();
+		g.setStroke(new BasicStroke(2));
+
+		// Find the next bookcase to visit
+		Bookcase nextBookcase = null;
+		if (bookcaseOrder != null && !bookcaseOrder.isEmpty())
+		{
+			for (Bookcase bc : bookcaseOrder)
+			{
+				if (playerLoc.distanceTo(bc.getLocation()) > 2)
+				{
+					nextBookcase = bc;
+					break;
+				}
+			}
+		}
+
+		// Render path tiles on the current floor
+		Point prevPoint = null;
+		for (WorldPoint wp : path)
+		{
+			// Only render tiles on the current floor
+			if (wp.getPlane() != client.getPlane())
+			{
+				prevPoint = null;
+				continue;
+			}
+
+			// Skip tiles too far from player
+			if (Math.abs(playerLoc.getX() - wp.getX()) > MAXIMUM_DISTANCE
+				|| Math.abs(playerLoc.getY() - wp.getY()) > MAXIMUM_DISTANCE)
+			{
+				prevPoint = null;
+				continue;
+			}
+
+			LocalPoint lp = LocalPoint.fromWorld(client, wp);
+			if (lp == null)
+			{
+				prevPoint = null;
+				continue;
+			}
+
+			// Draw tile outline
+			Polygon poly = getCanvasTilePoly(client, lp);
+			if (poly != null)
+			{
+				g.setColor(pathColor);
+				g.draw(poly);
+			}
+
+			// Draw line connecting path tiles
+			Point currentPoint = Perspective.localToCanvas(client, lp, wp.getPlane());
+			if (prevPoint != null && currentPoint != null)
+			{
+				g.setColor(pathColor);
+				g.drawLine(prevPoint.getX(), prevPoint.getY(), currentPoint.getX(), currentPoint.getY());
+			}
+			prevPoint = currentPoint;
+		}
+
+		// Highlight the next bookcase with a different color
+		if (nextBookcase != null && nextBookcase.getLocation().getPlane() == client.getPlane())
+		{
+			LocalPoint lp = LocalPoint.fromWorld(client, nextBookcase.getLocation());
+			if (lp != null)
+			{
+				Polygon poly = getCanvasTilePoly(client, lp);
+				if (poly != null)
+				{
+					g.setColor(nextBookcaseColor);
+					g.fill(poly);
+					g.setColor(nextBookcaseColor.darker());
+					g.draw(poly);
+
+					// Draw "NEXT" label
+					Point screen = Perspective.localToCanvas(client, lp, nextBookcase.getLocation().getPlane(), 50);
+					if (screen != null)
+					{
+						OverlayUtil.renderTextLocation(g, screen, "NEXT", nextBookcaseColor);
+					}
+				}
+			}
+		}
+
+		g.setStroke(originalStroke);
 	}
 
 	private boolean shouldHideOverlayIfDuplicateBook(@Nullable Book book)

@@ -26,8 +26,10 @@ package net.runelite.client.plugins.kourendlibrary;
 
 import com.google.inject.Provides;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -67,6 +69,7 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.kourendlibrary.pathfinder.LibraryPathfinderService;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
@@ -105,6 +108,9 @@ public class KourendLibraryPlugin extends Plugin
 	private KourendLibraryTutorialOverlay tutorialOverlay;
 
 	@Inject
+	private KourendLibraryPathMinimapOverlay pathMinimapOverlay;
+
+	@Inject
 	private KourendLibraryConfig config;
 
 	@Inject
@@ -112,6 +118,9 @@ public class KourendLibraryPlugin extends Plugin
 
 	@Inject
 	private ClientThread clientThread;
+
+	@Inject
+	private LibraryPathfinderService pathfinderService;
 
 	private KourendLibraryPanel panel;
 	private NavigationButton navButton;
@@ -149,6 +158,10 @@ public class KourendLibraryPlugin extends Plugin
 
 		overlayManager.add(overlay);
 		overlayManager.add(tutorialOverlay);
+		overlayManager.add(pathMinimapOverlay);
+
+		// Initialize the pathfinder service for optimal path calculation
+		pathfinderService.initialize();
 
 		clientThread.invoke(() ->
 		{
@@ -169,6 +182,8 @@ public class KourendLibraryPlugin extends Plugin
 	{
 		overlayManager.remove(overlay);
 		overlayManager.remove(tutorialOverlay);
+		overlayManager.remove(pathMinimapOverlay);
+		pathfinderService.clearCache();
 		clientToolbar.removeNavigation(navButton);
 		buttonAttached = false;
 		lastBookcaseClick = null;
@@ -263,6 +278,7 @@ public class KourendLibraryPlugin extends Plugin
 		if (event.getMessage().endsWith("You hear the shifting of books due to a mysterious force...or are you just hearing things?"))
 		{
 			library.reset();
+			pathfinderService.clearCache();
 		}
 	}
 
@@ -400,6 +416,108 @@ public class KourendLibraryPlugin extends Plugin
 	{
 		panel.update();
 		updateBookcaseHintArrow();
+		updateOptimalPath();
+	}
+
+	/**
+	 * Updates the optimal path to collect books.
+	 */
+	void updateOptimalPath()
+	{
+		if (!config.showOptimalPath())
+		{
+			return;
+		}
+
+		Player player = client.getLocalPlayer();
+		if (player == null)
+		{
+			return;
+		}
+
+		WorldPoint playerLocation = player.getWorldLocation();
+		if (playerLocation.getRegionID() != REGION)
+		{
+			return;
+		}
+
+		List<Bookcase> booksToCollect = getBooksToCollect();
+		if (booksToCollect.isEmpty())
+		{
+			return;
+		}
+
+		pathfinderService.computeOptimalPath(playerLocation, booksToCollect);
+	}
+
+	/**
+	 * Gets the list of bookcases containing books that need to be collected.
+	 */
+	List<Bookcase> getBooksToCollect()
+	{
+		List<Bookcase> result = new ArrayList<>();
+		SolvedState state = library.getState();
+
+		if (config.collectAllBooks())
+		{
+			// Collect all books that we don't have and haven't found yet
+			for (Bookcase bookcase : library.getBookcases())
+			{
+				Book book = bookcase.getBook();
+				Set<Book> possible = bookcase.getPossibleBooks();
+
+				// If book is known and not in inventory, add it
+				if (book != null && !playerBooks.contains(book))
+				{
+					// Skip Varlamore Envoy unless we're showing it
+					if (book == Book.VARLAMORE_ENVOY && !showVarlamoreEnvoy())
+					{
+						continue;
+					}
+					result.add(bookcase);
+				}
+				// If book location is uncertain but has possibilities, check if any are needed
+				else if (book == null && possible.size() == 1)
+				{
+					Book possibleBook = possible.iterator().next();
+					if (!playerBooks.contains(possibleBook))
+					{
+						if (possibleBook == Book.VARLAMORE_ENVOY && !showVarlamoreEnvoy())
+						{
+							continue;
+						}
+						result.add(bookcase);
+					}
+				}
+			}
+		}
+		else
+		{
+			// Only collect the customer's requested book
+			Book customerBook = library.getCustomerBook();
+			if (customerBook != null && !playerBooks.contains(customerBook) && state == SolvedState.COMPLETE)
+			{
+				for (Bookcase bookcase : library.getBookcases())
+				{
+					Set<Book> possible = bookcase.getPossibleBooks();
+					if (!possible.isEmpty() && possible.iterator().next() == customerBook)
+					{
+						result.add(bookcase);
+						break;
+					}
+				}
+			}
+		}
+
+		return result;
+	}
+
+	/**
+	 * Gets the pathfinder service for use by overlays.
+	 */
+	LibraryPathfinderService getPathfinderService()
+	{
+		return pathfinderService;
 	}
 
 	private void updateBookcaseHintArrow()

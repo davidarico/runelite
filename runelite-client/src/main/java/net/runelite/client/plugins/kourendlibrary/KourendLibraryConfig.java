@@ -24,14 +24,24 @@
  */
 package net.runelite.client.plugins.kourendlibrary;
 
+import java.awt.Color;
+import net.runelite.client.config.Alpha;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.ConfigSection;
 
 @ConfigGroup("kourendLibrary")
 public interface KourendLibraryConfig extends Config
 {
 	String GROUP_KEY = "kourendLibrary";
+
+	@ConfigSection(
+		name = "Optimal Path",
+		description = "Settings for the optimal book collection path",
+		position = 100
+	)
+	String optimalPathSection = "optimalPath";
 
 	@ConfigItem(
 		keyName = "hideButton",
@@ -79,6 +89,68 @@ public interface KourendLibraryConfig extends Config
 		description = "Show a hint arrow pointing to the target bookcase."
 	)
 	default boolean showTargetHintArrow()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "showOptimalPath",
+		name = "Show optimal collection path",
+		description = "Calculate and display the shortest path to collect all undiscovered books.",
+		section = optimalPathSection,
+		position = 101
+	)
+	default boolean showOptimalPath()
+	{
+		return true;
+	}
+
+	@Alpha
+	@ConfigItem(
+		keyName = "pathColor",
+		name = "Path color",
+		description = "Color of the optimal path tiles.",
+		section = optimalPathSection,
+		position = 102
+	)
+	default Color pathColor()
+	{
+		return new Color(0, 255, 255, 128);
+	}
+
+	@Alpha
+	@ConfigItem(
+		keyName = "nextBookcaseColor",
+		name = "Next bookcase color",
+		description = "Color highlighting the next bookcase to visit.",
+		section = optimalPathSection,
+		position = 103
+	)
+	default Color nextBookcaseColor()
+	{
+		return new Color(0, 255, 0, 180);
+	}
+
+	@ConfigItem(
+		keyName = "showPathOnMinimap",
+		name = "Show path on minimap",
+		description = "Display the optimal path on the minimap.",
+		section = optimalPathSection,
+		position = 104
+	)
+	default boolean showPathOnMinimap()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "collectAllBooks",
+		name = "Collect all unknown books",
+		description = "When enabled, shows path to collect all books with unknown locations. When disabled, only shows path to the customer's requested book.",
+		section = optimalPathSection,
+		position = 105
+	)
+	default boolean collectAllBooks()
 	{
 		return true;
 	}
